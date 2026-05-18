@@ -41,7 +41,7 @@ if user_answer:
                 model="llama-3.1-8b-instant",
                 messages=st.session_state["chat_history"]
             )
-            bot_response = completion.choices.message.content      
+            bot_response = completion.choices[0].message.content
             st.session_state["groq_messages"].append({"role": "assistant", "content": bot_response})
             st.session_state["chat_history"].append({"role": "assistant", "content": bot_response})
         except Exception as e:
