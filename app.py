@@ -16,7 +16,7 @@ client = Groq(api_key=st.secrets["GROQ_API_KEY"])
 
 if len(st.session_state["groq_messages"]) == 0:
     completion = client.chat.completions.create(
-        model="llama-3.1-8b-instant",
+        model="llama-3.3-7b-instant",
         messages=st.session_state["chat_history"]
     )
     initial_question = completion.choices[0].message.content
@@ -38,7 +38,7 @@ if user_answer:
     with st.spinner("جاري التفكير في إجابتك..."):
         try:
             completion = client.chat.completions.create(
-                model="llama-3.1-8b-instant",
+                model="llama-3.3-7b-instant",
                 messages=st.session_state["chat_history"]
             )
             bot_response = completion.choices[0].message.content
