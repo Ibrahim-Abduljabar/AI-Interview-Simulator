@@ -19,7 +19,7 @@ if len(st.session_state["groq_messages"]) == 0:
         model="llama-3.1-8b-instant",
         messages=st.session_state["chat_history"]
     )
-  initial_question = completion.choices[0].message.content
+    initial_question = completion.choices[0].message.content
     st.session_state["groq_messages"].append({"role": "assistant", "content": initial_question})
 
 for msg in st.session_state["groq_messages"]:
