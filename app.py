@@ -4,7 +4,7 @@ from groq import Groq
 
 
 try:
-    GROQ_API_KEY = st.secrets["API_www"]
+    GROQ_API_KEY = st.secrets["GROQ_API_KEY"]
     os.environ["GROQ_API_KEY"] = GROQ_API_KEY
     client = Groq(api_key=GROQ_API_KEY)
 except Exception:
