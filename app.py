@@ -1,14 +1,14 @@
 import streamlit as st
 import os
 from groq import Groq
-from google.colab import userdata
+
 
 try:
-    GROQ_API_KEY = userdata.get('GROQ_API_KEY')
+    GROQ_API_KEY = st.secrets["API_www"]
     os.environ["GROQ_API_KEY"] = GROQ_API_KEY
     client = Groq(api_key=GROQ_API_KEY)
 except Exception:
-    st.error("خطأ: لم يتم العثور على مفتاح GROQ_API_KEY في الـ Secrets")
+    st.error("خطأ: لم يتم ضبط مفتاح API_www في الـ Secrets حقت Streamlit")
     st.stop()
 
 MODEL_NAME = "llama-3.3-70b-versatile"
