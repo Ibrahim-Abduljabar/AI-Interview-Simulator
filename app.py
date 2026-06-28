@@ -1,138 +1,338 @@
-import streamlit as st
-from groq import Groq
-import time
-
-# 1. إعدادات الصفحة وجعل التخطيط عريض ليناسب واجهة الشات والسايدبار
-st.set_page_config(
-    page_title="AI Interview Simulator",
-    page_icon="🤖",
-    layout="wide"
-)
-
-# 2. اتصال الـ API بمكتبة Groq
-GROQ_API_KEY = st.secrets["GROQ_API_KEY"]
-client = Groq(api_key=GROQ_API_KEY)
-
-# 3. تهيئة هيكلة المحادثات المتعددة في الـ Session State
-if "all_chats" not in st.session_state:
-    st.session_state.all_chats = {}  # حفظ المحادثات بصيغة {اسم_المحادثة: قائمة_الرسائل}
-
-if "current_chat" not in st.session_state:
-    st.session_state.current_chat = None
-
-# --- الـ Sidebar الجانبي للتنقل وإنشاء المحادثات الجديدة ---
-with st.sidebar:
-    st.write("### 📂 إدارة المقابلات")
-    
-    # زر إنشاء مقابلة جديدة
-    if st.button("➕ ابدأ مقابلة جديدة", use_container_width=True):
-        chat_id = f"مقابلة {len(st.session_state.all_chats) + 1} - {time.strftime('%H:%M')}"
-        st.session_state.all_chats[chat_id] = [
-            {"role": "system", "content": "أنت خبير توظيف ومسؤول HR محترف. مهمتك هي إجراء مقابلة شخصية صارمة وقوية مع المستخدم لمعرفة كفاءته للوظيفة التي يختارها. قم بطرح سؤال واحد فقط في كل مرة، وانتظر إجابة المستخدم، وتفاعل معها ثم اطرح السؤال التالي بكل ذكاء واحترافية وبشكل عسكري حازم باللغة العربية."}
-        ]
-        st.session_state.current_chat = chat_id
-        st.rerun()
-
-    st.divider()
-    st.write("#### 📜 تاريخ المقابلات السابقة:")
-    
-    # قائمة التنقل بين المقابلات
-    if st.session_state.all_chats:
-        for chat_name in list(st.session_state.all_chats.keys()):
-            if st.button(chat_name, use_container_width=True, key=f"nav_{chat_name}"):
-                st.session_state.current_chat = chat_name
-                st.rerun()
-    else:
-        st.caption("لا توجد مقابلات نشطة حالياً. اضغط على الزر بالأعلى للبدء!")
-
-# --- الواجهة الرئيسية للمحادثة المستهدفة ---
-if st.session_state.current_chat:
-    current_chat_name = st.session_state.current_chat
-    messages = st.session_state.all_chats[current_chat_name]
-    
-    # حساب عدد الرسائل (باستثناء رسالة الـ system)
-    # كل سؤال وجواب يعتبر رسالتين، فنقسم على 2 أو نحسب الـ user والـ assistant فقط
-    user_assistant_msgs = [m for m in messages if m["role"] in ["user", "assistant"]]
-    msg_count = len(user_assistant_msgs)
-    
-    # ترويسة المقابلة مع العداد الصارم
-    st.write(f"### 🤖 محاكي المقابلات الشخصية بالذكاء الاصطناعي")
-    st.info(f"📋 أنت الآن في: **{current_chat_name}** | ⏱️ العداد الصارم للرسائل: **{msg_count} / 15**")
-    st.divider()
-    
-    # تفعيل السؤال الأول التلقائي إذا كانت المحادثة تحتوي على الـ system فقط
-    if len(messages) == 1:
-        with st.spinner("⏳ جاري بدء المقابلة وتجهيز السؤال الأول..."):
-            try:
-                completion = client.chat.completions.create(
-                    model="llama-3.3-70b-versatile",
-                    messages=messages
-                )
-                initial_question = completion.choices[0].message.content
-                messages.append({"role": "assistant", "content": initial_question})
-                st.rerun()
-            except Exception as e:
-                st.error(f"حدث خطأ في استدعاء السؤال الأول: {e}")
-
-    # عرض صندوق الشات وعرض الرسائل السابقة بشكل انسيابي محترف
-    for msg in messages:
-        if msg["role"] == "user":
-            with st.chat_message("user"):
-                st.write(msg["content"])
-        elif msg["role"] == "assistant":
-            with st.chat_message("assistant"):
-                st.write(msg["content"])
-
-    # --- منطق التحكم بالحد الأقصى 15 رسالة وإصدار التقييم النهائي ---
-    if msg_count >= 15:
-        st.warning("🚨 انتهى الوقت المخصص للمقابلة! تم الوصول للحد الأقصى (15 رسالة).")
-        
-        # التحقق مما إذا كان التقييم تم إصداره مسبقاً لمنع التكرار عند إعادة التشغيل
-        if messages[-1].get("is_report") is not True:
-            with st.spinner("📊 جاري تحليل أداءك وإصدار تقرير التقييم النهائي الشامل..."):
-                try:
-                    evaluation_prompt = """
-                    انتهت المقابلة الشخصية. بصفتك خبير الـ HR، قم بتحليل المحادثة السابقة بالكامل واكتب تقريراً نهائياً شاملاً للمستخدم باللغة العربية يحتوي على:
-                    1. تقييم عام لأداء المرشح ونقاط القوة التي أظهرها في إجاباته.
-                    2. نقاط الضعف أو الأخطاء التي وقع فيها وكيف يصححها.
-                    3. تقييم نهائي من 10 لمدى جاهزيته للوظيفة.
-                    4. القرار النهائي (مقبول / مرفوض مع التوجيه).
-                    """
-                    # إرسال تاريخ الشات كاملاً مع موجه التقييم
-                    eval_messages = messages + [{"role": "system", "content": evaluation_prompt}]
-                    
-                    completion = client.chat.completions.create(
-                        model="llama-3.3-70b-versatile",
-                        messages=eval_messages
-                    )
-                    report_content = completion.choices[0].message.content
-                    
-                    # حفظ التقرير في الذاكرة لتثبيته بالشاشة وعرضه
-                    messages.append({"role": "assistant", "content": report_content, "is_report": True})
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"حدث خطأ أثناء إصدار التقرير: {e}")
-    else:
-        # شريط إدخال نص المستخدم (متاح فقط إذا كان العداد تحت الـ 15)
-        user_answer = st.chat_input("اكتب إجابتك هنا وناقش مسؤول التوظيف...")
-        
-        if user_answer:
-            # إضافة إجابة المستخدم للـ Session State
-            messages.append({"role": "user", "content": user_answer})
-            
-            # استدعاء رد مسؤول التوظيف الجديد من Groq
-            with st.spinner("🤔 جاري تحليل إجابتك وصياغة السؤال التالي..."):
-                try:
-                    completion = client.chat.completions.create(
-                        model="llama-3.3-70b-versatile",
-                        messages=messages
-                    )
-                    bot_response = completion.choices[0].message.content
-                    messages.append({"role": "assistant", "content": bot_response})
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"حدث خطأ في السيرفر: {e}")
-else:
-    # شاشة ترحيبية عند فتح البرنامج لأول مرة
-    st.write("### 👋 مرحباً بك في محاكي المقابلات المطور!")
-    st.info("قم بإنشاء مقابلة جديدة من القائمة الجانبية (Sidebar) في اليسار لتبدأ طحن الأسئلة واختبار قدراتك فوراً!")
+{
+  "nbformat": 4,
+  "nbformat_minor": 0,
+  "metadata": {
+    "colab": {
+      "provenance": [],
+      "authorship_tag": "ABX9TyOu+nYf5dcUJ30CDx3CNmyN",
+      "include_colab_link": true
+    },
+    "kernelspec": {
+      "name": "python3",
+      "display_name": "Python 3"
+    },
+    "language_info": {
+      "name": "python"
+    }
+  },
+  "cells": [
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "view-in-github",
+        "colab_type": "text"
+      },
+      "source": [
+        "<a href=\"https://colab.research.google.com/github/Ibrahim-Abduljabar/AI-Interview-Simulator/blob/main/app.py\" target=\"_parent\"><img src=\"https://colab.research.google.com/assets/colab-badge.svg\" alt=\"Open In Colab\"/></a>"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": 1,
+      "metadata": {
+        "id": "GwX17ea2AubU",
+        "colab": {
+          "base_uri": "https://localhost:8080/"
+        },
+        "outputId": "d2a7169c-a43f-4e63-8d70-a8a03499ac0f"
+      },
+      "outputs": [
+        {
+          "output_type": "stream",
+          "name": "stdout",
+          "text": [
+            "Collecting streamlit\n",
+            "  Downloading streamlit-1.58.0-py3-none-any.whl.metadata (9.6 kB)\n",
+            "Requirement already satisfied: altair!=5.4.0,!=5.4.1,<7,>=4.0 in /usr/local/lib/python3.12/dist-packages (from streamlit) (5.5.0)\n",
+            "Requirement already satisfied: blinker<2,>=1.5.0 in /usr/local/lib/python3.12/dist-packages (from streamlit) (1.9.0)\n",
+            "Requirement already satisfied: cachetools<8,>=5.5 in /usr/local/lib/python3.12/dist-packages (from streamlit) (6.2.6)\n",
+            "Requirement already satisfied: click<9,>=7.0 in /usr/local/lib/python3.12/dist-packages (from streamlit) (8.4.1)\n",
+            "Requirement already satisfied: gitpython!=3.1.19,<4,>=3.0.7 in /usr/local/lib/python3.12/dist-packages (from streamlit) (3.1.50)\n",
+            "Requirement already satisfied: numpy<3,>=1.23 in /usr/local/lib/python3.12/dist-packages (from streamlit) (2.0.2)\n",
+            "Requirement already satisfied: packaging>=20 in /usr/local/lib/python3.12/dist-packages (from streamlit) (26.2)\n",
+            "Requirement already satisfied: pandas<4,>=1.4.0 in /usr/local/lib/python3.12/dist-packages (from streamlit) (2.2.2)\n",
+            "Requirement already satisfied: pillow<13,>=7.1.0 in /usr/local/lib/python3.12/dist-packages (from streamlit) (11.3.0)\n",
+            "Collecting pydeck<1,>=0.8.0b4 (from streamlit)\n",
+            "  Downloading pydeck-0.9.2-py2.py3-none-any.whl.metadata (4.2 kB)\n",
+            "Requirement already satisfied: protobuf<8,>=3.20 in /usr/local/lib/python3.12/dist-packages (from streamlit) (5.29.6)\n",
+            "Requirement already satisfied: pyarrow>=7.0 in /usr/local/lib/python3.12/dist-packages (from streamlit) (18.1.0)\n",
+            "Requirement already satisfied: requests<3,>=2.27 in /usr/local/lib/python3.12/dist-packages (from streamlit) (2.32.4)\n",
+            "Requirement already satisfied: tenacity<10,>=8.1.0 in /usr/local/lib/python3.12/dist-packages (from streamlit) (9.1.4)\n",
+            "Requirement already satisfied: toml<2,>=0.10.1 in /usr/local/lib/python3.12/dist-packages (from streamlit) (0.10.2)\n",
+            "Requirement already satisfied: typing-extensions<5,>=4.10.0 in /usr/local/lib/python3.12/dist-packages (from streamlit) (4.15.0)\n",
+            "Requirement already satisfied: starlette>=0.40.0 in /usr/local/lib/python3.12/dist-packages (from streamlit) (0.52.1)\n",
+            "Requirement already satisfied: uvicorn>=0.30.0 in /usr/local/lib/python3.12/dist-packages (from streamlit) (0.49.0)\n",
+            "Requirement already satisfied: httptools>=0.6.3 in /usr/local/lib/python3.12/dist-packages (from streamlit) (0.8.0)\n",
+            "Requirement already satisfied: anyio>=4.0.0 in /usr/local/lib/python3.12/dist-packages (from streamlit) (4.13.0)\n",
+            "Requirement already satisfied: python-multipart>=0.0.10 in /usr/local/lib/python3.12/dist-packages (from streamlit) (0.0.32)\n",
+            "Requirement already satisfied: websockets>=12.0.0 in /usr/local/lib/python3.12/dist-packages (from streamlit) (15.0.1)\n",
+            "Requirement already satisfied: itsdangerous>=2.1.2 in /usr/local/lib/python3.12/dist-packages (from streamlit) (2.2.0)\n",
+            "Requirement already satisfied: watchdog<7,>=2.1.5 in /usr/local/lib/python3.12/dist-packages (from streamlit) (6.0.0)\n",
+            "Requirement already satisfied: jinja2 in /usr/local/lib/python3.12/dist-packages (from altair!=5.4.0,!=5.4.1,<7,>=4.0->streamlit) (3.1.6)\n",
+            "Requirement already satisfied: jsonschema>=3.0 in /usr/local/lib/python3.12/dist-packages (from altair!=5.4.0,!=5.4.1,<7,>=4.0->streamlit) (4.26.0)\n",
+            "Requirement already satisfied: narwhals>=1.14.2 in /usr/local/lib/python3.12/dist-packages (from altair!=5.4.0,!=5.4.1,<7,>=4.0->streamlit) (2.22.1)\n",
+            "Requirement already satisfied: idna>=2.8 in /usr/local/lib/python3.12/dist-packages (from anyio>=4.0.0->streamlit) (3.18)\n",
+            "Requirement already satisfied: gitdb<5,>=4.0.1 in /usr/local/lib/python3.12/dist-packages (from gitpython!=3.1.19,<4,>=3.0.7->streamlit) (4.0.12)\n",
+            "Requirement already satisfied: python-dateutil>=2.8.2 in /usr/local/lib/python3.12/dist-packages (from pandas<4,>=1.4.0->streamlit) (2.9.0.post0)\n",
+            "Requirement already satisfied: pytz>=2020.1 in /usr/local/lib/python3.12/dist-packages (from pandas<4,>=1.4.0->streamlit) (2025.2)\n",
+            "Requirement already satisfied: tzdata>=2022.7 in /usr/local/lib/python3.12/dist-packages (from pandas<4,>=1.4.0->streamlit) (2026.2)\n",
+            "Requirement already satisfied: charset_normalizer<4,>=2 in /usr/local/lib/python3.12/dist-packages (from requests<3,>=2.27->streamlit) (3.4.7)\n",
+            "Requirement already satisfied: urllib3<3,>=1.21.1 in /usr/local/lib/python3.12/dist-packages (from requests<3,>=2.27->streamlit) (2.5.0)\n",
+            "Requirement already satisfied: certifi>=2017.4.17 in /usr/local/lib/python3.12/dist-packages (from requests<3,>=2.27->streamlit) (2026.5.20)\n",
+            "Requirement already satisfied: h11>=0.8 in /usr/local/lib/python3.12/dist-packages (from uvicorn>=0.30.0->streamlit) (0.16.0)\n",
+            "Requirement already satisfied: smmap<6,>=3.0.1 in /usr/local/lib/python3.12/dist-packages (from gitdb<5,>=4.0.1->gitpython!=3.1.19,<4,>=3.0.7->streamlit) (5.0.3)\n",
+            "Requirement already satisfied: MarkupSafe>=2.0 in /usr/local/lib/python3.12/dist-packages (from jinja2->altair!=5.4.0,!=5.4.1,<7,>=4.0->streamlit) (3.0.3)\n",
+            "Requirement already satisfied: attrs>=22.2.0 in /usr/local/lib/python3.12/dist-packages (from jsonschema>=3.0->altair!=5.4.0,!=5.4.1,<7,>=4.0->streamlit) (26.1.0)\n",
+            "Requirement already satisfied: jsonschema-specifications>=2023.03.6 in /usr/local/lib/python3.12/dist-packages (from jsonschema>=3.0->altair!=5.4.0,!=5.4.1,<7,>=4.0->streamlit) (2025.9.1)\n",
+            "Requirement already satisfied: referencing>=0.28.4 in /usr/local/lib/python3.12/dist-packages (from jsonschema>=3.0->altair!=5.4.0,!=5.4.1,<7,>=4.0->streamlit) (0.37.0)\n",
+            "Requirement already satisfied: rpds-py>=0.25.0 in /usr/local/lib/python3.12/dist-packages (from jsonschema>=3.0->altair!=5.4.0,!=5.4.1,<7,>=4.0->streamlit) (2026.5.1)\n",
+            "Requirement already satisfied: six>=1.5 in /usr/local/lib/python3.12/dist-packages (from python-dateutil>=2.8.2->pandas<4,>=1.4.0->streamlit) (1.17.0)\n",
+            "Downloading streamlit-1.58.0-py3-none-any.whl (9.2 MB)\n",
+            "\u001b[2K   \u001b[90m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\u001b[0m \u001b[32m9.2/9.2 MB\u001b[0m \u001b[31m20.7 MB/s\u001b[0m eta \u001b[36m0:00:00\u001b[0m\n",
+            "\u001b[?25hDownloading pydeck-0.9.2-py2.py3-none-any.whl (11.3 MB)\n",
+            "\u001b[2K   \u001b[90m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\u001b[0m \u001b[32m11.3/11.3 MB\u001b[0m \u001b[31m52.2 MB/s\u001b[0m eta \u001b[36m0:00:00\u001b[0m\n",
+            "\u001b[?25hInstalling collected packages: pydeck, streamlit\n",
+            "Successfully installed pydeck-0.9.2 streamlit-1.58.0\n",
+            "Collecting groq\n",
+            "  Downloading groq-1.5.0-py3-none-any.whl.metadata (16 kB)\n",
+            "Requirement already satisfied: anyio<5,>=3.5.0 in /usr/local/lib/python3.12/dist-packages (from groq) (4.13.0)\n",
+            "Requirement already satisfied: distro<2,>=1.7.0 in /usr/local/lib/python3.12/dist-packages (from groq) (1.9.0)\n",
+            "Requirement already satisfied: httpx<1,>=0.23.0 in /usr/local/lib/python3.12/dist-packages (from groq) (0.28.1)\n",
+            "Requirement already satisfied: pydantic<3,>=1.9.0 in /usr/local/lib/python3.12/dist-packages (from groq) (2.12.3)\n",
+            "Requirement already satisfied: sniffio in /usr/local/lib/python3.12/dist-packages (from groq) (1.3.1)\n",
+            "Requirement already satisfied: typing-extensions<5,>=4.14 in /usr/local/lib/python3.12/dist-packages (from groq) (4.15.0)\n",
+            "Requirement already satisfied: idna>=2.8 in /usr/local/lib/python3.12/dist-packages (from anyio<5,>=3.5.0->groq) (3.18)\n",
+            "Requirement already satisfied: certifi in /usr/local/lib/python3.12/dist-packages (from httpx<1,>=0.23.0->groq) (2026.5.20)\n",
+            "Requirement already satisfied: httpcore==1.* in /usr/local/lib/python3.12/dist-packages (from httpx<1,>=0.23.0->groq) (1.0.9)\n",
+            "Requirement already satisfied: h11>=0.16 in /usr/local/lib/python3.12/dist-packages (from httpcore==1.*->httpx<1,>=0.23.0->groq) (0.16.0)\n",
+            "Requirement already satisfied: annotated-types>=0.6.0 in /usr/local/lib/python3.12/dist-packages (from pydantic<3,>=1.9.0->groq) (0.7.0)\n",
+            "Requirement already satisfied: pydantic-core==2.41.4 in /usr/local/lib/python3.12/dist-packages (from pydantic<3,>=1.9.0->groq) (2.41.4)\n",
+            "Requirement already satisfied: typing-inspection>=0.4.2 in /usr/local/lib/python3.12/dist-packages (from pydantic<3,>=1.9.0->groq) (0.4.2)\n",
+            "Downloading groq-1.5.0-py3-none-any.whl (143 kB)\n",
+            "\u001b[2K   \u001b[90m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\u001b[0m \u001b[32m143.7/143.7 kB\u001b[0m \u001b[31m1.2 MB/s\u001b[0m eta \u001b[36m0:00:00\u001b[0m\n",
+            "\u001b[?25hInstalling collected packages: groq\n",
+            "Successfully installed groq-1.5.0\n",
+            "Requirement already satisfied: python-dotenv in /usr/local/lib/python3.12/dist-packages (1.2.2)\n",
+            "Collecting xhtml2pdf\n",
+            "  Downloading xhtml2pdf-0.2.17-py3-none-any.whl.metadata (22 kB)\n",
+            "Collecting arabic-reshaper>=3.0.0 (from xhtml2pdf)\n",
+            "  Downloading arabic_reshaper-3.0.1-py3-none-any.whl.metadata (13 kB)\n",
+            "Requirement already satisfied: html5lib>=1.1 in /usr/local/lib/python3.12/dist-packages (from xhtml2pdf) (1.1)\n",
+            "Requirement already satisfied: Pillow>=8.1.1 in /usr/local/lib/python3.12/dist-packages (from xhtml2pdf) (11.3.0)\n",
+            "Collecting pyHanko>=0.12.1 (from xhtml2pdf)\n",
+            "  Downloading pyhanko-0.35.1-py3-none-any.whl.metadata (3.3 kB)\n",
+            "Collecting pyhanko-certvalidator>=0.19.5 (from xhtml2pdf)\n",
+            "  Downloading pyhanko_certvalidator-0.31.1-py3-none-any.whl.metadata (4.9 kB)\n",
+            "Collecting pypdf>=3.1.0 (from xhtml2pdf)\n",
+            "  Downloading pypdf-6.14.2-py3-none-any.whl.metadata (7.2 kB)\n",
+            "Collecting python-bidi>=0.5.0 (from xhtml2pdf)\n",
+            "  Downloading python_bidi-0.6.10-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl.metadata (5.3 kB)\n",
+            "Collecting reportlab<5,>=4.0.4 (from xhtml2pdf)\n",
+            "  Downloading reportlab-4.5.1-py3-none-any.whl.metadata (1.7 kB)\n",
+            "Collecting svglib>=1.2.1 (from xhtml2pdf)\n",
+            "  Downloading svglib-2.0.2-py3-none-any.whl.metadata (13 kB)\n",
+            "Requirement already satisfied: six>=1.9 in /usr/local/lib/python3.12/dist-packages (from html5lib>=1.1->xhtml2pdf) (1.17.0)\n",
+            "Requirement already satisfied: webencodings in /usr/local/lib/python3.12/dist-packages (from html5lib>=1.1->xhtml2pdf) (0.5.1)\n",
+            "Collecting asn1crypto>=1.5.1 (from pyHanko>=0.12.1->xhtml2pdf)\n",
+            "  Downloading asn1crypto-1.5.1-py2.py3-none-any.whl.metadata (13 kB)\n",
+            "Requirement already satisfied: tzlocal>=4.3 in /usr/local/lib/python3.12/dist-packages (from pyHanko>=0.12.1->xhtml2pdf) (5.3.1)\n",
+            "Requirement already satisfied: requests>=2.31.0 in /usr/local/lib/python3.12/dist-packages (from pyHanko>=0.12.1->xhtml2pdf) (2.32.4)\n",
+            "Requirement already satisfied: pyyaml>=6.0 in /usr/local/lib/python3.12/dist-packages (from pyHanko>=0.12.1->xhtml2pdf) (6.0.3)\n",
+            "Requirement already satisfied: cryptography>=48.0.0 in /usr/local/lib/python3.12/dist-packages (from pyHanko>=0.12.1->xhtml2pdf) (49.0.0)\n",
+            "Requirement already satisfied: lxml>=5.4.0 in /usr/local/lib/python3.12/dist-packages (from pyHanko>=0.12.1->xhtml2pdf) (6.1.1)\n",
+            "Collecting oscrypto>=1.1.0 (from pyhanko-certvalidator>=0.19.5->xhtml2pdf)\n",
+            "  Downloading oscrypto-1.3.0-py2.py3-none-any.whl.metadata (15 kB)\n",
+            "Collecting uritools>=3.0.1 (from pyhanko-certvalidator>=0.19.5->xhtml2pdf)\n",
+            "  Downloading uritools-6.1.2-py3-none-any.whl.metadata (5.1 kB)\n",
+            "Requirement already satisfied: charset-normalizer in /usr/local/lib/python3.12/dist-packages (from reportlab<5,>=4.0.4->xhtml2pdf) (3.4.7)\n",
+            "Collecting cssselect2>=0.2.0 (from svglib>=1.2.1->xhtml2pdf)\n",
+            "  Downloading cssselect2-0.9.0-py3-none-any.whl.metadata (2.9 kB)\n",
+            "Requirement already satisfied: tinycss2>=0.6.0 in /usr/local/lib/python3.12/dist-packages (from svglib>=1.2.1->xhtml2pdf) (1.5.1)\n",
+            "Requirement already satisfied: cffi>=2.0.0 in /usr/local/lib/python3.12/dist-packages (from cryptography>=48.0.0->pyHanko>=0.12.1->xhtml2pdf) (2.0.0)\n",
+            "Requirement already satisfied: idna<4,>=2.5 in /usr/local/lib/python3.12/dist-packages (from requests>=2.31.0->pyHanko>=0.12.1->xhtml2pdf) (3.18)\n",
+            "Requirement already satisfied: urllib3<3,>=1.21.1 in /usr/local/lib/python3.12/dist-packages (from requests>=2.31.0->pyHanko>=0.12.1->xhtml2pdf) (2.5.0)\n",
+            "Requirement already satisfied: certifi>=2017.4.17 in /usr/local/lib/python3.12/dist-packages (from requests>=2.31.0->pyHanko>=0.12.1->xhtml2pdf) (2026.5.20)\n",
+            "Requirement already satisfied: pycparser in /usr/local/lib/python3.12/dist-packages (from cffi>=2.0.0->cryptography>=48.0.0->pyHanko>=0.12.1->xhtml2pdf) (3.0)\n",
+            "Downloading xhtml2pdf-0.2.17-py3-none-any.whl (125 kB)\n",
+            "\u001b[2K   \u001b[90m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\u001b[0m \u001b[32m125.3/125.3 kB\u001b[0m \u001b[31m1.4 MB/s\u001b[0m eta \u001b[36m0:00:00\u001b[0m\n",
+            "\u001b[?25hDownloading arabic_reshaper-3.0.1-py3-none-any.whl (20 kB)\n",
+            "Downloading pyhanko-0.35.1-py3-none-any.whl (466 kB)\n",
+            "\u001b[2K   \u001b[90m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\u001b[0m \u001b[32m467.0/467.0 kB\u001b[0m \u001b[31m4.9 MB/s\u001b[0m eta \u001b[36m0:00:00\u001b[0m\n",
+            "\u001b[?25hDownloading pyhanko_certvalidator-0.31.1-py3-none-any.whl (111 kB)\n",
+            "\u001b[2K   \u001b[90m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\u001b[0m \u001b[32m111.4/111.4 kB\u001b[0m \u001b[31m6.6 MB/s\u001b[0m eta \u001b[36m0:00:00\u001b[0m\n",
+            "\u001b[?25hDownloading pypdf-6.14.2-py3-none-any.whl (349 kB)\n",
+            "\u001b[2K   \u001b[90m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\u001b[0m \u001b[32m349.5/349.5 kB\u001b[0m \u001b[31m12.4 MB/s\u001b[0m eta \u001b[36m0:00:00\u001b[0m\n",
+            "\u001b[?25hDownloading python_bidi-0.6.10-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl (299 kB)\n",
+            "\u001b[2K   \u001b[90m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\u001b[0m \u001b[32m299.6/299.6 kB\u001b[0m \u001b[31m11.4 MB/s\u001b[0m eta \u001b[36m0:00:00\u001b[0m\n",
+            "\u001b[?25hDownloading reportlab-4.5.1-py3-none-any.whl (2.0 MB)\n",
+            "\u001b[2K   \u001b[90m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\u001b[0m \u001b[32m2.0/2.0 MB\u001b[0m \u001b[31m19.9 MB/s\u001b[0m eta \u001b[36m0:00:00\u001b[0m\n",
+            "\u001b[?25hDownloading svglib-2.0.2-py3-none-any.whl (45 kB)\n",
+            "\u001b[2K   \u001b[90m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\u001b[0m \u001b[32m45.7/45.7 kB\u001b[0m \u001b[31m2.0 MB/s\u001b[0m eta \u001b[36m0:00:00\u001b[0m\n",
+            "\u001b[?25hDownloading asn1crypto-1.5.1-py2.py3-none-any.whl (105 kB)\n",
+            "\u001b[2K   \u001b[90m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\u001b[0m \u001b[32m105.0/105.0 kB\u001b[0m \u001b[31m5.2 MB/s\u001b[0m eta \u001b[36m0:00:00\u001b[0m\n",
+            "\u001b[?25hDownloading cssselect2-0.9.0-py3-none-any.whl (15 kB)\n",
+            "Downloading oscrypto-1.3.0-py2.py3-none-any.whl (194 kB)\n",
+            "\u001b[2K   \u001b[90m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\u001b[0m \u001b[32m194.6/194.6 kB\u001b[0m \u001b[31m11.9 MB/s\u001b[0m eta \u001b[36m0:00:00\u001b[0m\n",
+            "\u001b[?25hDownloading uritools-6.1.2-py3-none-any.whl (11 kB)\n",
+            "Installing collected packages: asn1crypto, uritools, reportlab, python-bidi, pypdf, oscrypto, arabic-reshaper, cssselect2, svglib, pyhanko-certvalidator, pyHanko, xhtml2pdf\n",
+            "Successfully installed arabic-reshaper-3.0.1 asn1crypto-1.5.1 cssselect2-0.9.0 oscrypto-1.3.0 pyHanko-0.35.1 pyhanko-certvalidator-0.31.1 pypdf-6.14.2 python-bidi-0.6.10 reportlab-4.5.1 svglib-2.0.2 uritools-6.1.2 xhtml2pdf-0.2.17\n"
+          ]
+        }
+      ],
+      "source": [
+        "!pip install streamlit\n",
+        "!pip install groq\n",
+        "!pip install python-dotenv\n",
+        "!pip install xhtml2pdf"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "from google.colab import userdata\n",
+        "import os\n",
+        "os.environ[\"GROQ_API_KEY\"] = userdata.get('GROQ_API_KEY')\n"
+      ],
+      "metadata": {
+        "id": "Frb9oscJBtny"
+      },
+      "execution_count": 3,
+      "outputs": []
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "import streamlit as st\n",
+        "import os\n",
+        "import tempfile\n",
+        "from groq import Groq\n",
+        "from xhtml2pdf import pisa\n",
+        "\n",
+        "\n",
+        "\n",
+        "client = Groq(api_key=os.environ.get(\"GROQ_API_KEY\"))\n",
+        "\n",
+        "\n",
+        "def html_to_pdf(html_content):\n",
+        "    with tempfile.NamedTemporaryFile(delete=False, suffix=\".pdf\") as tmp_pdf:\n",
+        "        pisa.CreatePDF(html_content, dest=tmp_pdf)\n",
+        "        tmp_pdf_path = tmp_pdf.name\n",
+        "\n",
+        "    with open(tmp_pdf_path, \"rb\") as f:\n",
+        "        pdf_bytes = f.read()\n",
+        "\n",
+        "    return pdf_bytes\n",
+        "\n",
+        "\n",
+        "st.title(\"PassATS AI — CV Optimizer for ATS Systems\")\n",
+        "\n",
+        "st.write(\"أدخل السيرة الذاتية والوصف الوظيفي ليتم إعادة صياغتهما بشكل متوافق 100% مع أنظمة ATS.\")\n",
+        "\n",
+        "cv_input = st.text_area(\"CV — السيرة الذاتية\", height=250)\n",
+        "job_desc_input = st.text_area(\"Job Description — الوصف الوظيفي\", height=250)\n",
+        "\n",
+        "process_btn = st.button(\"Generate Optimized ATS CV\")\n",
+        "\n",
+        "\n",
+        "if process_btn:\n",
+        "    if not cv_input or not job_desc_input:\n",
+        "        st.error(\"الرجاء إدخال السيرة الذاتية والوصف الوظيفي.\")\n",
+        "    else:\n",
+        "        st.info(\"جاري المعالجة عبر Groq…\")\n",
+        "\n",
+        "        system_prompt = \"\"\"\n",
+        "        أنت خبير في كتابة السير الذاتية المتوافقة مع ATS.\n",
+        "        أعد صياغة السيرة الذاتية بالكامل لتتوافق 100% مع الوصف الوظيفي.\n",
+        "        أعد الإخراج على شكل كود HTML فقط.\n",
+        "        استخدم Inline CSS فقط.\n",
+        "        لا تستخدم Markdown.\n",
+        "        لا تكتب أي نص خارج HTML.\n",
+        "        اجعل التصميم احترافي، أكاديمي، منظم، وخفيف.\n",
+        "        \"\"\"\n",
+        "\n",
+        "        user_prompt = f\"\"\"\n",
+        "        السيرة الذاتية:\n",
+        "        {cv_input}\n",
+        "\n",
+        "        الوصف الوظيفي:\n",
+        "        {job_desc_input}\n",
+        "\n",
+        "        أعد كتابة السيرة الذاتية بصيغة HTML فقط.\n",
+        "        \"\"\"\n",
+        "\n",
+        "        response = client.chat.completions.create(\n",
+        "            model=\"llama-3.3-70b-versatile\",\n",
+        "            messages=[\n",
+        "                {\"role\": \"system\", \"content\": system_prompt},\n",
+        "                {\"role\": \"user\", \"content\": user_prompt}\n",
+        "            ],\n",
+        "            temperature=0.2,\n",
+        "        )\n",
+        "\n",
+        "        html_output = response.choices[0].message.content\n",
+        "\n",
+        "        st.success(\"تم إنشاء السيرة الذاتية بنجاح!\")\n",
+        "\n",
+        "        st.subheader(\"HTML Output Preview\")\n",
+        "        st.code(html_output, language=\"html\")\n",
+        "\n",
+        "        pdf_bytes = html_to_pdf(html_output)\n",
+        "\n",
+        "        st.download_button(\n",
+        "            label=\"Download PDF\",\n",
+        "            data=pdf_bytes,\n",
+        "            file_name=\"optimized_cv.pdf\",\n",
+        "            mime=\"application/pdf\"\n",
+        "        )"
+      ],
+      "metadata": {
+        "colab": {
+          "base_uri": "https://localhost:8080/"
+        },
+        "id": "FjVUIUeBDv2x",
+        "outputId": "9894f511-3402-4845-c216-c3eedd5c54b9"
+      },
+      "execution_count": 4,
+      "outputs": [
+        {
+          "output_type": "stream",
+          "name": "stderr",
+          "text": [
+            "2026-06-28 11:52:27.821 WARNING streamlit.runtime.scriptrunner_utils.script_run_context: Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
+            "2026-06-28 11:52:28.001 \n",
+            "  \u001b[33m\u001b[1mWarning:\u001b[0m to view this Streamlit app on a browser, run it with the following\n",
+            "  command:\n",
+            "\n",
+            "    streamlit run /usr/local/lib/python3.12/dist-packages/colab_kernel_launcher.py [ARGUMENTS]\n",
+            "2026-06-28 11:52:28.002 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
+            "2026-06-28 11:52:28.003 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
+            "2026-06-28 11:52:28.005 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
+            "2026-06-28 11:52:28.006 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
+            "2026-06-28 11:52:28.007 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
+            "2026-06-28 11:52:28.008 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
+            "2026-06-28 11:52:28.009 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
+            "2026-06-28 11:52:28.009 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
+            "2026-06-28 11:52:28.010 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
+            "2026-06-28 11:52:28.011 Session state does not function when running a script without `streamlit run`\n",
+            "2026-06-28 11:52:28.012 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
+            "2026-06-28 11:52:28.013 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
+            "2026-06-28 11:52:28.013 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
+            "2026-06-28 11:52:28.014 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
+            "2026-06-28 11:52:28.014 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
+            "2026-06-28 11:52:28.015 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
+            "2026-06-28 11:52:28.015 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
+            "2026-06-28 11:52:28.016 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
+            "2026-06-28 11:52:28.017 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
+            "2026-06-28 11:52:28.018 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
+            "2026-06-28 11:52:28.019 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
+            "2026-06-28 11:52:28.019 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
+            "2026-06-28 11:52:28.020 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
+            "2026-06-28 11:52:28.021 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
+            "2026-06-28 11:52:28.021 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n",
+            "2026-06-28 11:52:28.022 Thread 'MainThread': missing ScriptRunContext! This warning can be ignored when running in bare mode.\n"
+          ]
+        }
+      ]
+    }
+  ]
+}
