@@ -1,7 +1,10 @@
 import streamlit as st
 import os
 from groq import Groq
+from logsnag import LogSnag
 
+log_client = LogSnag(token=st.secrets["LOGSNAG_TOKEN"], project="ai-interview-simulator")
+log_client.track(channel="visits", event="New Visit")
 
 try:
     GROQ_API_KEY = st.secrets["GROQ_API_KEY"]
