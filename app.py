@@ -1,6 +1,7 @@
 import streamlit as st
 import os
 import pdfplumber
+import re
 from groq import Groq
 from logsnag import LogSnag
 
@@ -39,7 +40,7 @@ chat_history = session_data["chat_history"]
 
 
 
-st.subheader("📄 ارفع السيرة الذاتية (اختياري)")
+st.subheader("📄 يجب رفع السيرة الذاتية للبدء")
 
 uploaded_cv = st.file_uploader("ارفع ملف CV بصيغة PDF أو TXT", type=["pdf", "txt"])
 cv_text = ""
@@ -60,17 +61,25 @@ if uploaded_cv:
         except Exception:
             st.warning("⚠️ لم نتمكن من قراءة ملف TXT")
 
+cv_text = re.sub(r'[^\u0600-\u06FF0-9A-Za-z\s.,-]', '', cv_text)
+
+
+if not cv_text:
+    st.warning("⚠️ يجب رفع السيرة الذاتية أولًا قبل بدء المقابلة.")
+    st.stop()
+
 
 
 SYSTEM_PROMPT = f"""
 أنت مسؤول توظيف محترف وخبير في الموارد البشرية والـ HR.
 مهمتك هي إجراء مقابلة عمل حقيقية وصارمة وصعبة مع المستخدم.
 
-إذا كانت السيرة الذاتية متوفرة، استخدمها لتخصيص الأسئلة بدقة:
+هذه السيرة الذاتية الخاصة به:
 --------------------
-{cv_text if cv_text else "لم يتم رفع سيرة ذاتية، اسأل أسئلة عامة حسب الوظيفة."}
+{cv_text}
 --------------------
 
+استخدمها لتخصيص الأسئلة بدقة عالية.
 اطرح سؤالاً واحداً فقط في كل مرة وانتظر إجابة المستخدم قبل الانتقال للسؤال التالي.
 لا تخرج عن إطار وظيفة المستخدم المتقدم إليها، واختبر مهاراته التقنية والشخصية بذكاء عميق.
 """
