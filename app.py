@@ -1,5 +1,6 @@
 import streamlit as st
 import os
+import pdfplumber
 from groq import Groq
 from logsnag import LogSnag
 
@@ -36,10 +37,45 @@ with st.sidebar:
 session_data = st.session_state.sessions[st.session_state.current_session]
 chat_history = session_data["chat_history"]
 
-SYSTEM_PROMPT = """أنت مسؤول توظيف محترف وخبير في الموارد البشرية والـ HR. 
-مهمتك هي إجراء مقابلة عمل حقيقية وصارمة وصعبة مع المستخدم. 
-اطرح سؤالاً واحداً فقط في كل مرة وانتظر إجابة المستخدم قبل الانتقال للسؤال التالي. 
-لا تخرج عن إطار وظيفة المستخدم المتقدم إليها، واختبر مهاراته التقنية والشخصية بذكاء عميق."""
+
+
+st.subheader("📄 ارفع السيرة الذاتية (اختياري)")
+
+uploaded_cv = st.file_uploader("ارفع ملف CV بصيغة PDF أو TXT", type=["pdf", "txt"])
+cv_text = ""
+
+if uploaded_cv:
+    if uploaded_cv.type == "application/pdf":
+        try:
+            with pdfplumber.open(uploaded_cv) as pdf:
+                for page in pdf.pages:
+                    text = page.extract_text()
+                    if text:
+                        cv_text += text + "\n"
+        except Exception:
+            st.warning("⚠️ لم نتمكن من قراءة ملف PDF، جرّب ملف TXT")
+    else:
+        try:
+            cv_text = uploaded_cv.read().decode("utf-8")
+        except Exception:
+            st.warning("⚠️ لم نتمكن من قراءة ملف TXT")
+
+
+
+SYSTEM_PROMPT = f"""
+أنت مسؤول توظيف محترف وخبير في الموارد البشرية والـ HR.
+مهمتك هي إجراء مقابلة عمل حقيقية وصارمة وصعبة مع المستخدم.
+
+إذا كانت السيرة الذاتية متوفرة، استخدمها لتخصيص الأسئلة بدقة:
+--------------------
+{cv_text if cv_text else "لم يتم رفع سيرة ذاتية، اسأل أسئلة عامة حسب الوظيفة."}
+--------------------
+
+اطرح سؤالاً واحداً فقط في كل مرة وانتظر إجابة المستخدم قبل الانتقال للسؤال التالي.
+لا تخرج عن إطار وظيفة المستخدم المتقدم إليها، واختبر مهاراته التقنية والشخصية بذكاء عميق.
+"""
+
+
 
 if not chat_history:
     chat_history.append({"role": "system", "content": SYSTEM_PROMPT})
