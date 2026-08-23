@@ -16,7 +16,7 @@ except Exception:
     st.error("خطأ: لم يتم ضبط مفتاح API_www في الـ Secrets حقت Streamlit")
     st.stop()
 
-MODEL_NAME = "llama-3.3-70b-versatile"
+MODEL_NAME = "openai/gpt-oss-120b"
 
 if "sessions" not in st.session_state:
     st.session_state.sessions = {"المحادثة 1": {"chat_history": [], "current_question_count": 0, "completed": False}}
